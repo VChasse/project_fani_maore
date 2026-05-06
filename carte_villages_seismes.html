@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        body {
+            display: flex;
+            flex-direction: column; /* Change direction to column */
+            align-items: center; /* Center elements */
+            font-family: Arial, sans-serif;
+            margin: 0; /* Remove default margins */
+        }
+
+        #map {
+            height: 90vh; /* Adjust height to leave room below */
+            width: 100%;
+        }
+
+        #cities-list {
+            width: 100%;
+            text-align: center;
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-top: 1px solid #ccc; /* Add separation */
+        }
+
+        #filter-panel {
+            position: absolute;
+            top: 95px;
+            left: 50px;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 20px;
+            z-index: 1000;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+        }
+
+        #value-display {
+            margin-top: 10px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        h4 {
+            margin-top: 10px;
+        }
+
+        table {
+            margin: 10px auto; /* Center the table */
+        }
+
+        
+    </style>
+</head>
+<body>
+    <div id="filter-panel">
+        <h2>Filter villages</h2>
+        <label for="filter-soil">Main soil type:</label>
+        <select id="filter-soil">
+            <option value="all">All</option>
+            <option value="Terre Battue">Packed Earth</option>
+            <option value="Béton">Concrete</option>
+            <option value="Carrelage">Tile</option>
+        </select>
+    
+        <br></br>
+
+        <label for="filter-vulnerability">Vulnerability index:</label>
+        <input type="range" id="filter-vulnerability" min="0" max="100" step="1" value="0">
+        <div id="vulnerability-display">Minimum index: 0</div>
+
+        <br>
+
+        <label for="filter-population">Minimum population:</label>
+        <input type="number" id="filter-population" min="0" value="0" step="1" />
+
+        <br></br>
+        <button onclick="applyFilters()">Apply filters</button>
+        <br>
+    
+        <h2>Search for a village</h2>
+        <label for="village-select">Select a village:</label>
+        <select id="village-select">
+            <option value="">-- Choose a village --</option>
+        </select>
+
+        <br>
+        <h2>Create an earthquake</h1>
+        <label for="filter-range">Magnitude (1 to 10):</label>
+        <input type="range" id="filter-range" min="1" max="10" step="0.1" value="5">
+        <div id="value-display">Selected magnitude: 5</div>
+    </div>
+
+<div id="map"></div>
+
+<div id="cities-list">
+    <h3>Affected cities:</h3>
+    <ul id="cities"></ul>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+
+    // Map initialization
+    var map = L.map('map').setView([-12.8516, 45.0485], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    // Add a legend to explain circle colors
+    var legend = L.control({ position: 'bottomright' });
+
+    legend.onAdd = function(map) {
+        var div = L.DomUtil.create('div', 'info legend');
+
+        // Add title
+        div.innerHTML = "<h4>Vulnerability index</h4>";
+
+        var grades = [0, 50, 80]; // Thresholds for vulnerability
+        var labels = ['<strong>Legend</strong>'];
+
+        // Function to get color corresponding to vulnerability indices
+        function getColor(v) {
+            return v >= 80 ? 'red' :
+                v >= 50 ? 'orange' :
+                            'green';
+        }
+
+        // Generate legend elements
+        for (var i = 0; i < grades.length; i++) {
+            div.innerHTML +=
+                '<i style="background:' + getColor(grades[i]) + '; width: 18px; height: 18px; display: inline-block; margin-right: 5px;"></i> ' +
+                (i === 0 ? 'Low' : i === 1 ? 'Medium' : 'High') + '<br>';
+        }
+
+        return div;
+    };
+
+    // Add legend to map
+    legend.addTo(map);
+
+
+    let villagesData = []; // Array to store village data
+
+    // Load villages data from JSON file
+    async function loadVillagesData() {
+        try {
+            const response = await fetch('villages_data.json');
+            villagesData = await response.json();
+            
+            if (villagesData.length === 0) {
+                alert("The data file seems empty or incorrectly formatted.");
+                return;
+            }
+
+            updateVillageSelect();
+            applyFilters();
+        } catch (error) {
+            console.error("Error loading villages data:", error);
+            alert("Error loading villages data. Please check the console for details.");
+        }
+    }
+
+    // Function to update the dropdown list with villages, sorted alphabetically
+    function updateVillageSelect() {
+        const villageSelect = document.getElementById('village-select');
+        villageSelect.innerHTML = '<option value="">-- Choose a village --</option>'; // Clear old list
+
+        // Sort villages alphabetically by name
+        const sortedVillages = villagesData.sort((a, b) => {
+            const nameA = a["Nom Village"].toUpperCase(); // Ignore case
+            const nameB = b["Nom Village"].toUpperCase(); // Ignore case
+            if (nameA < nameB) {
+                return -1;
+            }
+            if (nameA > nameB) {
+                return 1;
+            }
+            return 0;
+        });
+
+        // Add sorted villages to dropdown list
+        sortedVillages.forEach(village => {
+            const option = document.createElement('option');
+            option.value = village["Nom Village"];
+            option.textContent = village["Nom Village"];
+            villageSelect.appendChild(option);
+        });
+    }
+
+    // Apply filters to villages and display them on the map
+    function applyFilters() {
+        // Clear map before adding new villages
+        map.eachLayer(layer => {
+            if (layer instanceof L.CircleMarker) {
+                map.removeLayer(layer);
+            }
+        });
+
+        // Get filters
+        const selectedSoil = document.getElementById('filter-soil').value;
+        const minVulnerability = parseFloat(document.getElementById('filter-vulnerability').value);
+        const minPopulation = parseFloat(document.getElementById('filter-population').value);
+
+        // Normalization thresholds consistent with addVillageToMap()
+        const maxPopulation = 17733;  // theoretical maximum population
+        const maxPctTerre = 100;      // 100% earth
+        const maxhablogements = 5.1;
+        const maxIndiceVulnerabilite = (maxPctTerre * 3) * Math.log2(maxPopulation) * maxhablogements;
+
+        // Add filtered villages to map
+        villagesData.forEach(village => {
+            if (village["Latitude"] && village["Longitude"]) {
+                let lat = parseFloat(village["Latitude"].toString().replace(",", "."));
+                let lng = parseFloat(village["Longitude"].toString().replace(",", "."));
+
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    const totalLogements = parseFloat(village["Total"] || 0);
+                    const popMoyLogement = parseFloat(village["Nombre moyen de personnes par logement"] || 0);
+                    const population = totalLogements * popMoyLogement;
+
+                    const pctTerre = totalLogements ? (village["Sol en terre battue"] / totalLogements * 100) : 0;
+                    const pctBeton = totalLogements ? (village["Sol en beton"] / totalLogements * 100) : 0;
+                    const pctCarrelage = totalLogements ? (village["Sol en carrelage ou autre"] / totalLogements * 100) : 0;
+
+                    const logPopulation = population > 0 ? Math.log2(population) : 1;
+                    const indiceVulnerabiliteBrut = (pctTerre * 3 + pctBeton * 2 + pctCarrelage * 1) * logPopulation * popMoyLogement;
+
+                    // Normalisation de l'indice pour être entre 0 et 100
+                    const indiceNormalise = Math.min(Math.max((indiceVulnerabiliteBrut / maxIndiceVulnerabilite) * 100, 0), 100);
+
+                    let mainSoil = "Autre";
+                    if (pctTerre > pctBeton && pctTerre > pctCarrelage) mainSoil = "Terre Battue";
+                    else if (pctBeton > pctCarrelage) mainSoil = "Béton";
+                    else mainSoil = "Carrelage";
+
+                    // Appliquer les filtres
+                    if ((selectedSoil === "all" || selectedSoil === mainSoil) &&
+                        indiceNormalise >= minVulnerability &&
+                        population >= minPopulation) {
+                        addVillageToMap(village);
+                    }
+                }
+            }
+        });
+    }
+
+
+    // Village search function
+    function searchVillage() {
+        const searchTerm = document.getElementById('search-village').value.toLowerCase(); // Get search text and convert to lowercase
+
+        if (!searchTerm) {
+            alert("Please enter a village name.");
+            return;
+        }
+
+        // Clear map before adding filtered villages
+        map.eachLayer(layer => {
+            if (layer instanceof L.CircleMarker) {
+                map.removeLayer(layer);
+            }
+        });
+
+        // Filter villages by name
+        villagesData.forEach(village => {
+            const villageName = village["Nom Village"].toLowerCase();
+            
+            if (villageName.includes(searchTerm) && village["Latitude"] && village["Longitude"]) {
+                let lat = parseFloat(village["Latitude"].toString().replace(",", "."));
+                let lng = parseFloat(village["Longitude"].toString().replace(",", "."));
+
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    addVillageToMap(village); // Add filtered village to map
+                }
+            }
+        });
+    }
+
+    // Function to add a village to the map
+    function addVillageToMap(village) {
+        // Verification and correction of latitudes/longitudes
+        let lat = village["Latitude"];
+        let lng = village["Longitude"];
+
+        if (typeof lat === "string") lat = parseFloat(lat.replace(",", "."));
+        if (typeof lng === "string") lng = parseFloat(lng.replace(",", "."));
+
+        if (!isNaN(lat) && !isNaN(lng)) {
+            
+
+            // Verification and conversion of values
+            const totalLogements = village["Total"] ? parseFloat(village["Total"]) : 0;
+            const popMoyLogement = village["Nombre moyen de personnes par logement"] ? parseFloat(village["Nombre moyen de personnes par logement"]) : 0;
+            const population = totalLogements * popMoyLogement;
+
+            // Calculate soil percentages
+            const pctTerre = totalLogements ? (village["Sol en terre battue"] / totalLogements * 100) : 0;
+            const pctBeton = totalLogements ? (village["Sol en beton"] / totalLogements * 100) : 0;
+            const pctCarrelage = totalLogements ? (village["Sol en carrelage ou autre"] / totalLogements * 100) : 0;
+
+            // Calculate raw vulnerability index
+            const logPopulation = population > 0 ? Math.log2(population) : 1;
+            const habitantsParLogement = village["Nombre moyen de personnes par logement"];  // Average number of residents per dwelling
+
+            // Calculate vulnerability index taking into account number of residents per dwelling
+            const indiceVulnerabiliteBrut = (pctTerre * 3 + pctBeton * 2 + pctCarrelage * 1) * logPopulation * habitantsParLogement;
+
+            // Maximum and minimum possible thresholds for calculations
+            const maxPopulation = 17733;  // theoretical maximum population
+            const maxPctTerre = 100;      // 100% earth
+            const maxhablogements = 5.1;
+
+            // Calculate normalized index between 0 and 100
+            const maxIndiceVulnerabilite = (maxPctTerre * 3) * Math.log2(maxPopulation) * maxhablogements;
+            const indiceNormalise = (indiceVulnerabiliteBrut / maxIndiceVulnerabilite) * 100;
+
+            const indiceNormaliseArrondi = Math.min(Math.max(indiceNormalise, 0), 100).toFixed(2);
+
+            // Function to determine circle color
+            function getColorByVulnerability(indiceNormaliseArrondi) {
+                if (indiceNormaliseArrondi >= 80) return "red";       // Very vulnerable 🔴
+                if (indiceNormaliseArrondi >= 50) return "orange";    // Moderately vulnerable 🟠
+                return "green";                       // Low vulnerability 🟢
+            }
+
+            // Create a fixed-size circle (radius = 8)
+            const marker = L.circleMarker([lat, lng], {
+                radius: 5,  // Fixed size for all villages
+                color: getColorByVulnerability(indiceNormaliseArrondi),
+                fillColor: getColorByVulnerability(indiceNormaliseArrondi),
+                fillOpacity: 0.7,
+            }).addTo(map);
+
+            // Add popup with information
+            marker.bindPopup(`
+                <strong>${village["Nom Village"]}</strong><br>
+                Packed Earth Soil: ${pctTerre.toFixed(1)}%<br>
+                Concrete Soil: ${pctBeton.toFixed(1)}%<br>
+                Tile Soil: ${pctCarrelage.toFixed(1)}%<br>
+                Total dwellings: ${totalLogements}<br>
+                <strong>Estimated population: ${Math.round(population)}</strong><br>
+                Average population per dwelling: ${popMoyLogement.toFixed(1)}<br>
+                <strong>Vulnerability Index: ${indiceNormaliseArrondi}</strong>
+            `);
+
+    
+        } else {
+            console.warn("Invalid coordinates for", village["Nom Village"]);
+        }
+    }
+
+    var previousMarker = null;
+    var previousCircles = [];
+
+    // Calculate distance between two points
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371000;  // Earth's radius in meters
+        const φ1 = lat1 * Math.PI / 180;
+        const φ2 = lat2 * Math.PI / 180;
+        const Δφ = (lat2 - lat1) * Math.PI / 180;
+        const Δλ = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+        return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))); // Returns distance in meters
+    }
+
+    // Calculate intensity felt at a city
+    function intensityAtCity(lat1, lon1, lat2, lon2, magnitude, beta) {
+        let distance = calculateDistance(lat1, lon1, lat2, lon2) / 1000; // Distance in km
+        distance = Math.max(distance, 1); // Minimum distance of 1 km to avoid division by zero
+        return Math.max(magnitude - beta * Math.log10(distance), 0);  // Intensity formula
+    }
+
+    // Felt intensity category
+    function getIntensityCategory(intensity) {
+        if (intensity >= 7) return 'High';
+        if (intensity >= 4) return 'Medium';
+        return 'Low';
+    }
+
+    function updateCitiesList(lat, lng, radius, magnitude) {
+        const beta = 4; // Rocky terrain coefficient, adjust if needed
+        const categorizedCities = { 'High': [], 'Medium': [], 'Low': [] };
+
+        villagesData.forEach(village => {
+            const villageLat = parseFloat(village["Latitude"].toString().replace(",", "."));
+            const villageLng = parseFloat(village["Longitude"].toString().replace(",", "."));
+
+            if (!isNaN(villageLat) && !isNaN(villageLng)) {
+                const distance = calculateDistance(lat, lng, villageLat, villageLng);
+                const intensity = intensityAtCity(lat, lng, villageLat, villageLng, magnitude, beta);
+                const category = getIntensityCategory(intensity);
+
+                if (distance <= radius) {
+                    categorizedCities[category].push({
+                        name: village["Nom Village"],
+                        distance: distance,
+                        intensity: intensity.toFixed(2)
+                    });
+                }
+            }
+        });
+
+        const citiesList = document.getElementById('cities');
+        citiesList.innerHTML = ''; // Clear existing list
+        const fragment = document.createDocumentFragment();
+
+        Object.keys(categorizedCities).forEach(category => {
+            if (categorizedCities[category].length > 0) {
+                categorizedCities[category].sort((a, b) => b.intensity - a.intensity);
+
+                // Add a title for each category
+                let header = document.createElement('h4');
+                header.textContent = category;
+                fragment.appendChild(header);
+
+                // Create a table for this category
+                let table = document.createElement('table');
+                table.style.width = "60%";
+                table.style.borderCollapse = "collapse";
+
+                // Add table header
+                let thead = document.createElement('thead');
+                thead.innerHTML = `
+                    <tr>
+                        <th style="border: 1px solid #000; padding: 3px;">Village name</th>
+                        <th style="border: 1px solid #000; padding: 3px;">Distance (km)</th>
+                        <th style="border: 1px solid #000; padding: 3px;">Intensity</th>
+                    </tr>`;
+                table.appendChild(thead);
+
+                let tbody = document.createElement('tbody');
+                categorizedCities[category].forEach(city => {
+                    let row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td style="border: 1px solid #000; padding: 3px;">${city.name}</td>
+                        <td style="border: 1px solid #000; padding: 3px;">${Math.round(city.distance / 1000)}</td>
+                        <td style="border: 1px solid #000; padding: 3px;">${city.intensity}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+                table.appendChild(tbody);
+                fragment.appendChild(table);
+            }
+        });
+
+        citiesList.appendChild(fragment);
+    }
+
+    
+    // Function to animate a circle (enlarge its radius)
+    function animateCircle(circle, targetRadius, duration) {
+        let step = targetRadius / 30;  // Divide radius into 30 steps
+        let radius = 0;
+        let interval = setInterval(() => {
+            radius += step;
+            circle.setRadius(radius);
+            if (radius >= targetRadius) clearInterval(interval);  // Stop animation once radius is reached
+        }, duration / 30);
+    }
+
+    function createGradientCircle(lat, lng, magnitude) {
+        if (previousMarker) {
+            map.removeLayer(previousMarker);
+            previousCircles.forEach(circle => map.removeLayer(circle));
+            previousCircles = [];
+        }
+
+        var marker = L.marker([lat, lng]).addTo(map)
+            .bindPopup("Earthquake: Magnitude " + magnitude + "<br><strong>Click to remove</strong>");
+
+        var maxRadius = Math.pow(10, (0.5 * magnitude - 1.8)) * 1000;
+        
+        // Draw the largest circle first
+        let outerCircle = L.circle([lat, lng], {
+            color: "black",
+            fillColor: "black",
+            fillOpacity: 0.1,
+            radius: maxRadius
+        }).addTo(map);
+        previousCircles.push(outerCircle);
+
+        // Number of points to draw the radius
+        let steps = 100;
+        let beta = 4;
+        let lastIntensity = null;
+
+        for (let i = 0; i <= steps; i++) {
+            let fraction = i / steps;
+            let pointLat = lat + fraction * (maxRadius / 111320); // 111320m ≈ 1° latitude
+            let pointLng = lng;
+
+            let intensity = Math.floor(intensityAtCity(lat, lng, pointLat, pointLng, magnitude, beta));
+
+            // If intensity changes by an integer, draw a circle
+            if (intensity !== lastIntensity) {
+                let circle = L.circle([lat, lng], {
+                    color: getColorFromIntensity(intensity),
+                    fillColor: getColorFromIntensity(intensity),
+                    fillOpacity: 0.1,
+                    radius: fraction * maxRadius
+                }).addTo(map);
+                previousCircles.push(circle);
+            }
+            lastIntensity = intensity;
+        }
+
+        updateCitiesList(lat, lng, maxRadius, magnitude);
+        previousMarker = marker;
+
+        marker.on('click', function() {
+            map.removeLayer(marker);
+            previousCircles.forEach(circle => map.removeLayer(circle));
+        });
+    }
+
+    // Function to get color based on felt intensity
+    function getColorFromIntensity(intensity) {
+        let hue = 240 - (intensity * 30); // 240 (blue) -> 0 (red)
+        return `hsl(${hue}, 100%, 50%)`;
+    }
+
+    // Map click event to simulate an earthquake
+    map.on('click', function(e) {
+        var magnitude = parseFloat(document.getElementById('filter-range').value);
+        createGradientCircle(e.latlng.lat, e.latlng.lng, magnitude);
+    });
+
+    // Event to update magnitude display
+    var rangeInput = document.getElementById('filter-range');
+    var valueDisplay = document.getElementById('value-display');
+    rangeInput.addEventListener('input', function() {
+        valueDisplay.textContent = "Selected magnitude: " + rangeInput.value;
+    });
+
+    // Event to update vulnerability index display
+    var vulnerabilityInput = document.getElementById('filter-vulnerability');
+    var vulnerabilityDisplay = document.getElementById('vulnerability-display');
+    vulnerabilityInput.addEventListener('input', function() {
+        vulnerabilityDisplay.textContent = "Minimum index: " + this.value;
+    });
+
+    // Display magnitude slider value
+    var rangeInput = document.getElementById('filter-range');
+    var valueDisplay = document.getElementById('value-display');
+    rangeInput.addEventListener('input', function() {
+        valueDisplay.textContent = "Selected magnitude: " + rangeInput.value;
+    });
+
+    document.getElementById('village-select').addEventListener('change', function() {
+        const selectedVillageName = this.value;
+
+        // Search for selected village in the data
+        const selectedVillage = villagesData.find(village => village["Nom Village"] === selectedVillageName);
+
+        if (selectedVillage && selectedVillage["Latitude"] && selectedVillage["Longitude"]) {
+            const lat = parseFloat(selectedVillage["Latitude"].toString().replace(",", "."));
+            const lng = parseFloat(selectedVillage["Longitude"].toString().replace(",", "."));
+
+            if (!isNaN(lat) && !isNaN(lng)) {
+                // Center map on selected village
+                map.setView([lat, lng], 15);  // 13 for a closer zoom level
+            }
+        }
+    });
+
+    // Load villages data when page loads
+    window.addEventListener('DOMContentLoaded', loadVillagesData);
+</script>
+
+</body>
+</html>
