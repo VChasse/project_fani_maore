@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Interactive map</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.4/xlsx.full.min.js"></script>
     <style>
         body {
             display: flex;
@@ -62,13 +61,7 @@
     </style>
 </head>
 <body>
-    <h3>Before starting, please import the types_batiments.xlsx file</h3>
     <div id="filter-panel">
-        <div id="excel-container">
-            <input type="file" id="excel-file" />
-            <button onclick="readExcel()">Import villages</button>
-        </div>
-
         <h2>Filter villages</h2>
         <label for="filter-soil">Main soil type:</label>
         <select id="filter-soil">
@@ -90,7 +83,7 @@
         <input type="number" id="filter-population" min="0" value="0" step="1" />
 
         <br></br>
-        <button onclick="readExcel()">Apply filters</button>
+        <button onclick="applyFilters()">Apply filters</button>
         <br>
     
         <h2>Search for a village</h2>
@@ -155,117 +148,107 @@
 
     let villagesData = []; // Array to store village data
 
-
-    
-    function readExcel() {
-        const fileInput = document.getElementById('excel-file');
-        const file = fileInput.files[0];
-
-        if (!file) {
-            alert("Please select an Excel file.");
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onload = function (e) {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, { type: 'array' });
-            const sheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName];
-
-            villagesData = XLSX.utils.sheet_to_json(worksheet);
-
+    // Load villages data from JSON file
+    async function loadVillagesData() {
+        try {
+            const response = await fetch('villages_data.json');
+            villagesData = await response.json();
+            
             if (villagesData.length === 0) {
-                alert("The file seems empty or incorrectly formatted.");
+                alert("The data file seems empty or incorrectly formatted.");
                 return;
             }
 
-            // Function to update the dropdown list with villages, sorted alphabetically
-            function updateVillageSelect() {
-                const villageSelect = document.getElementById('village-select');
-                villageSelect.innerHTML = '<option value="">-- Choose a village --</option>'; // Clear old list
-
-                // Sort villages alphabetically by name
-                const sortedVillages = villagesData.sort((a, b) => {
-                    const nameA = a["Nom Village"].toUpperCase(); // Ignore case
-                    const nameB = b["Nom Village"].toUpperCase(); // Ignore case
-                    if (nameA < nameB) {
-                        return -1;
-                    }
-                    if (nameA > nameB) {
-                        return 1;
-                    }
-                    return 0;
-                });
-
-                // Add sorted villages to dropdown list
-                sortedVillages.forEach(village => {
-                    const option = document.createElement('option');
-                    option.value = village["Nom Village"];
-                    option.textContent = village["Nom Village"];
-                    villageSelect.appendChild(option);
-                });
-            }
-
-            // Call this function after loading villages in readExcel
             updateVillageSelect();
+            applyFilters();
+        } catch (error) {
+            console.error("Error loading villages data:", error);
+            alert("Error loading villages data. Please check the console for details.");
+        }
+    }
 
-            // Clear map before adding new villages
-            map.eachLayer(layer => {
-                if (layer instanceof L.CircleMarker) {
-                    map.removeLayer(layer);
-                }
-            });
+    // Function to update the dropdown list with villages, sorted alphabetically
+    function updateVillageSelect() {
+        const villageSelect = document.getElementById('village-select');
+        villageSelect.innerHTML = '<option value="">-- Choose a village --</option>'; // Clear old list
 
-            // Get filters
-            const selectedSoil = document.getElementById('filter-soil').value;
-            const minVulnerability = parseFloat(document.getElementById('filter-vulnerability').value);
-            const minPopulation = parseFloat(document.getElementById('filter-population').value);
+        // Sort villages alphabetically by name
+        const sortedVillages = villagesData.sort((a, b) => {
+            const nameA = a["Nom Village"].toUpperCase(); // Ignore case
+            const nameB = b["Nom Village"].toUpperCase(); // Ignore case
+            if (nameA < nameB) {
+                return -1;
+            }
+            if (nameA > nameB) {
+                return 1;
+            }
+            return 0;
+        });
 
-            // Normalization thresholds consistent with addVillageToMap()
-            const maxPopulation = 17733;  // theoretical maximum population
-            const maxPctTerre = 100;      // 100% earth
-            const maxhablogements = 5.1;
-            const maxIndiceVulnerabilite = (maxPctTerre * 3) * Math.log2(maxPopulation) * maxhablogements;
+        // Add sorted villages to dropdown list
+        sortedVillages.forEach(village => {
+            const option = document.createElement('option');
+            option.value = village["Nom Village"];
+            option.textContent = village["Nom Village"];
+            villageSelect.appendChild(option);
+        });
+    }
 
-            // Add filtered villages to map
-            villagesData.forEach(village => {
-                if (village["Latitude"] && village["Longitude"]) {
-                    let lat = parseFloat(village["Latitude"].toString().replace(",", "."));
-                    let lng = parseFloat(village["Longitude"].toString().replace(",", "."));
+    // Apply filters to villages and display them on the map
+    function applyFilters() {
+        // Clear map before adding new villages
+        map.eachLayer(layer => {
+            if (layer instanceof L.CircleMarker) {
+                map.removeLayer(layer);
+            }
+        });
 
-                    if (!isNaN(lat) && !isNaN(lng)) {
-                        const totalLogements = parseFloat(village["Total"] || 0);
-                        const popMoyLogement = parseFloat(village["Nombre moyen de personnes par logement"] || 0);
-                        const population = totalLogements * popMoyLogement;
+        // Get filters
+        const selectedSoil = document.getElementById('filter-soil').value;
+        const minVulnerability = parseFloat(document.getElementById('filter-vulnerability').value);
+        const minPopulation = parseFloat(document.getElementById('filter-population').value);
 
-                        const pctTerre = totalLogements ? (village["Sol en terre battue"] / totalLogements * 100) : 0;
-                        const pctBeton = totalLogements ? (village["Sol en beton"] / totalLogements * 100) : 0;
-                        const pctCarrelage = totalLogements ? (village["Sol en carrelage ou autre"] / totalLogements * 100) : 0;
+        // Normalization thresholds consistent with addVillageToMap()
+        const maxPopulation = 17733;  // theoretical maximum population
+        const maxPctTerre = 100;      // 100% earth
+        const maxhablogements = 5.1;
+        const maxIndiceVulnerabilite = (maxPctTerre * 3) * Math.log2(maxPopulation) * maxhablogements;
 
-                        const logPopulation = population > 0 ? Math.log2(population) : 1;
-                        const indiceVulnerabiliteBrut = (pctTerre * 3 + pctBeton * 2 + pctCarrelage * 1) * logPopulation * popMoyLogement;
+        // Add filtered villages to map
+        villagesData.forEach(village => {
+            if (village["Latitude"] && village["Longitude"]) {
+                let lat = parseFloat(village["Latitude"].toString().replace(",", "."));
+                let lng = parseFloat(village["Longitude"].toString().replace(",", "."));
 
-                        // Normalisation de l'indice pour être entre 0 et 100
-                        const indiceNormalise = Math.min(Math.max((indiceVulnerabiliteBrut / maxIndiceVulnerabilite) * 100, 0), 100);
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    const totalLogements = parseFloat(village["Total"] || 0);
+                    const popMoyLogement = parseFloat(village["Nombre moyen de personnes par logement"] || 0);
+                    const population = totalLogements * popMoyLogement;
 
-                        let mainSoil = "Autre";
-                        if (pctTerre > pctBeton && pctTerre > pctCarrelage) mainSoil = "Terre Battue";
-                        else if (pctBeton > pctCarrelage) mainSoil = "Béton";
-                        else mainSoil = "Carrelage";
+                    const pctTerre = totalLogements ? (village["Sol en terre battue"] / totalLogements * 100) : 0;
+                    const pctBeton = totalLogements ? (village["Sol en beton"] / totalLogements * 100) : 0;
+                    const pctCarrelage = totalLogements ? (village["Sol en carrelage ou autre"] / totalLogements * 100) : 0;
 
-                        // Appliquer les filtres
-                        if ((selectedSoil === "all" || selectedSoil === mainSoil) &&
-                            indiceNormalise >= minVulnerability &&
-                            population >= minPopulation) {
-                            addVillageToMap(village);
-                        }
+                    const logPopulation = population > 0 ? Math.log2(population) : 1;
+                    const indiceVulnerabiliteBrut = (pctTerre * 3 + pctBeton * 2 + pctCarrelage * 1) * logPopulation * popMoyLogement;
+
+                    // Normalisation de l'indice pour être entre 0 et 100
+                    const indiceNormalise = Math.min(Math.max((indiceVulnerabiliteBrut / maxIndiceVulnerabilite) * 100, 0), 100);
+
+                    let mainSoil = "Autre";
+                    if (pctTerre > pctBeton && pctTerre > pctCarrelage) mainSoil = "Terre Battue";
+                    else if (pctBeton > pctCarrelage) mainSoil = "Béton";
+                    else mainSoil = "Carrelage";
+
+                    // Appliquer les filtres
+                    if ((selectedSoil === "all" || selectedSoil === mainSoil) &&
+                        indiceNormalise >= minVulnerability &&
+                        population >= minPopulation) {
+                        addVillageToMap(village);
                     }
                 }
-            });
-        };
-
-        reader.readAsArrayBuffer(file);
+            }
+        });
     }
 
 
@@ -586,6 +569,9 @@
             }
         }
     });
+
+    // Load villages data when page loads
+    window.addEventListener('DOMContentLoaded', loadVillagesData);
 </script>
 
 </body>
