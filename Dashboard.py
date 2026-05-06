@@ -17,39 +17,39 @@ def load_data(path):
     df['Time'] = pd.to_datetime(df['Time'], errors='coerce')
     return df
     
-# --- Chargement des données ---
+# --- Data loading ---
 data = load_data('basemayotte.csv')
 
-st.title("Analyse des Répliques")
+st.title("Aftershocks Analysis")
 
-# Sélectionner l'année et le mois
-year_filter = st.sidebar.selectbox("Choisir l'année", data['Time'].dt.year.unique())
+# Select year and month
+year_filter = st.sidebar.selectbox("Choose year", data['Time'].dt.year.unique())
 
-# Utiliser le nom du mois en français dans le selectbox
-# Pour cela, on formate la date en nom du mois (en fonction de la locale configurée)
-month_filter = st.sidebar.selectbox("Choisir le mois", data['Time'].dt.strftime('%B').unique())
+# Use the month name in the selectbox
+# For this, format the date as month name (depending on configured locale)
+month_filter = st.sidebar.selectbox("Choose month", data['Time'].dt.strftime('%B').unique())
 
-# Filtrer les données par année et par mois (en comparant la chaîne de caractères du mois)
+# Filter data by year and month (by comparing month string)
 filtered_data = data[
     (data['Time'].dt.year == year_filter) & 
     (data['Time'].dt.strftime('%B') == month_filter)
 ]
 
-# Afficher le nombre d'événements pour la période choisie
-st.sidebar.markdown(f"**Événements pour {month_filter} {year_filter}**")
-st.sidebar.markdown(f"Nombre d'événements: {len(filtered_data)}")
+# Display the number of events for the selected period
+st.sidebar.markdown(f"**Events for {month_filter} {year_filter}**")
+st.sidebar.markdown(f"Number of events: {len(filtered_data)}")
 
 
-# --- 1. Sélection de l'événement principal ---
-st.sidebar.header("Événement Principal")
+# --- 1. Main event selection ---
+st.sidebar.header("Main Event")
 
-# Seuil de magnitude pour la sélection d'un mainshock (par exemple, 5.0)
+# Magnitude threshold for mainshock selection (e.g., 5.0)
 seuil_principal = st.sidebar.slider(
-    "Seuil de magnitude pour l'événement principal", 
+    "Magnitude threshold for main event", 
     min_value=3.0, max_value=9.0, value=3.0, step=0.1
 )
 
-# Filtrer les événements candidats pour être un mainshock parmi la période sélectionnée
+# Filter candidate events to be a mainshock among the selected period
 candidats_principal = (
     filtered_data[filtered_data['Magnitude'] >= seuil_principal]
     .sort_values('Time')
@@ -57,23 +57,23 @@ candidats_principal = (
 )
 
 if candidats_principal.empty:
-    st.error("Aucun événement ne satisfait le seuil de magnitude choisi.")
+    st.error("No event meets the selected magnitude threshold.")
     st.stop()
 
-# Création d'une liste descriptive pour la sélection
+# Create a descriptive list for selection
 options_principal = candidats_principal.apply(
     lambda row: f"{row['Time'].strftime('%Y-%m-%d %H:%M:%S')} | Mag: {row['Magnitude']:.1f}", axis=1
 ).tolist()
 
-ev_principal_str = st.sidebar.selectbox("Choisissez l'événement principal", options_principal)
-# Récupérer l'index de l'événement sélectionné dans la liste
+ev_principal_str = st.sidebar.selectbox("Choose the main event", options_principal)
+# Get the index of the selected event from the list
 index_selection = options_principal.index(ev_principal_str)
 principal = candidats_principal.iloc[index_selection]
 principal['Temps'] = principal['Time'].strftime('%Y-%m-%d %H:%M')
 
-#Fonction pour calcul de distance
+#Function for distance calculation
 def haversine(lat1, lon1, lat2, lon2):
-        R = 6371  # Rayon de la Terre en km
+        R = 6371  # Earth's radius in km
         dLat = np.radians(lat2 - lat1)
         dLon = np.radians(lon2 - lon1)
         a = np.sin(dLat / 2) ** 2 + np.cos(np.radians(lat1)) * np.cos(np.radians(lat2)) * np.sin(dLon / 2) ** 2
@@ -84,54 +84,54 @@ def haversine(lat1, lon1, lat2, lon2):
 col1, col2 = st.columns([4,6])
 
 with col1:
-    st.markdown(f"### Événement principal sélectionné")
+    st.markdown(f"### Selected Main Event")
     st.write(principal[['Temps', 'Magnitude', 'Latitude', 'Longitude', 'Profondeur']])
 
-    # --- 2. Paramétrage des seuils pour les répliques ---
-    st.sidebar.header("Paramètres des Répliques")
-    rayon_spatial = st.sidebar.slider("Rayon spatial pour les répliques (km)", 
+    # --- 2. Threshold settings for aftershocks ---
+    st.sidebar.header("Aftershock Parameters")
+    rayon_spatial = st.sidebar.slider("Spatial radius for aftershocks (km)", 
                                           min_value=5, max_value=200, value=50, step=5)
-    fenetre_temporelle_jours = st.sidebar.slider("Fenêtre temporelle après l'événement principal (jours)", 
+    fenetre_temporelle_jours = st.sidebar.slider("Time window after main event (days)", 
                                          min_value=1, max_value=30, value=7, step=1)
     fenetre_temporelle = pd.Timedelta(days=fenetre_temporelle_jours)
 
-    # --- 3. Identification des répliques ---
-    # On considère comme répliques les événements survenant après le mainshock,
-    # dans le rayon spatial défini et dans la fenêtre temporelle donnée.
+    # --- 3. Aftershock identification ---
+    # We consider as aftershocks the events occurring after the mainshock,
+    # within the defined spatial radius and given time window.
 
-    # On sélectionne les événements survenant après l'événement principal
+    # Select events occurring after the main event
     candidats = data[data['Time'] > principal['Time']].copy()
-    # Calcul de la distance entre le mainshock et chaque candidat
+    # Calculate distance between mainshock and each candidate
     candidats['Distance'] = candidats.apply(
         lambda row: haversine(principal['Latitude'], principal['Longitude'], row['Latitude'], row['Longitude']),
         axis=1
     )
-    # Calcul de la différence de temps
-    candidats['Différence de temps'] = candidats['Time'] - principal['Time']
+    # Calculate time difference
+    candidats['Time difference'] = candidats['Time'] - principal['Time']
 
-    # Filtrer en fonction des seuils spatial et temporel
+    # Filter based on spatial and temporal thresholds
     repliques = candidats[
         (candidats['Distance'] <= rayon_spatial) &
-        (candidats['Différence de temps'] <= fenetre_temporelle)
+        (candidats['Time difference'] <= fenetre_temporelle)
     ].copy()
     
     repliques["Temps"] = repliques["Time"].apply(lambda x : x.strftime('%Y-%m-%d %H:%M'))
     
-    st.markdown("### Répliques Identifiées")
-    st.write(f"Nombre de répliques trouvées : {len(repliques)}")
-    st.dataframe(repliques[['Temps', 'Magnitude', 'Latitude', 'Longitude', 'Distance', 'Différence de temps']].round(2))
+    st.markdown("### Identified Aftershocks")
+    st.write(f"Number of aftershocks found: {len(repliques)}")
+    st.dataframe(repliques[['Temps', 'Magnitude', 'Latitude', 'Longitude', 'Distance', 'Time difference']].round(2))
 
-# --- 4. Visualisation sur la carte ---
-# On affiche le mainshock et les répliques sur la carte.
-# Le mainshock sera affiché en rouge, les premières répliques en orange et les dernières en vert.
-# Définir le centre de la carte sur le mainshock
+# --- 4. Visualization on the map ---
+# Display the mainshock and aftershocks on the map.
+# The mainshock will be displayed in red, first aftershocks in orange and last ones in green.
+# Set map center on the mainshock
 m = folium.Map(location=[principal['Latitude'], principal['Longitude']], zoom_start=10)
 
-# Ajouter le mainshock
-popup_principal = (f"<b>Secousse principale</b><br>"
-                   f"<b>Temps:</b> {principal['Temps']}<br>"
+# Add the mainshock
+popup_principal = (f"<b>Main shock</b><br>"
+                   f"<b>Time:</b> {principal['Temps']}<br>"
                    f"<b>Magnitude:</b> {principal['Magnitude']}<br>"
-                   f"<b>Profondeur:</b> {principal['Profondeur']} km")
+                   f"<b>Depth:</b> {principal['Profondeur']} km")
 folium.CircleMarker(
     location=[principal['Latitude'], principal['Longitude']],
     radius=10 + principal['Magnitude'] * 2,
@@ -142,14 +142,14 @@ folium.CircleMarker(
     popup=popup_principal
 ).add_to(m)
 
-# Trier les répliques par date
+# Sort aftershocks by date
 repliques_sorted = repliques.sort_values(by='Time')
 
-# Diviser les répliques en deux groupes: premières (orange) et dernières (vertes)
+# Divide aftershocks into two groups: first (orange) and last (green)
 premieres_repliques = repliques_sorted.iloc[:len(repliques_sorted)//2]
 dernières_repliques = repliques_sorted.iloc[len(repliques_sorted)//2:]
 
-# Ajouter une légende
+# Add a legend
 legend_html = """
      <div style="position: fixed; 
                  bottom: 50px; left: 50px; width: 200px; height: 120px; 
@@ -164,17 +164,17 @@ legend_html = """
          Mainshock<br>
      </div>
 """
-# Ajouter la légende à la carte
+# Add legend to map
 m.get_root().html.add_child(folium.Element(legend_html))
 
 
-# Ajouter les premières répliques en orange
+# Add first aftershocks in orange
 for idx, row in premieres_repliques.iterrows():
-    popup_text = (f"<b>Réplique</b><br>"
-                  f"<b>Temps:</b> {row['Time']}<br>"
+    popup_text = (f"<b>Aftershock</b><br>"
+                  f"<b>Time:</b> {row['Time']}<br>"
                   f"<b>Magnitude:</b> {row['Magnitude']}<br>"
                   f"<b>Distance:</b> {row['Distance']:.1f} km<br>"
-                  f"<b>ΔTemps:</b> {row['Différence de temps']}")
+                  f"<b>ΔTime:</b> {row['Time difference']}")
     folium.CircleMarker(
         location=[row['Latitude'], row['Longitude']],
         radius=5 + row['Magnitude'] * 2,
@@ -184,7 +184,7 @@ for idx, row in premieres_repliques.iterrows():
         fill_opacity=0.7,
         popup=popup_text
     ).add_to(m)
-    # Optionnel : tracer une ligne reliant le mainshock à la réplique
+    # Optional: draw a line connecting the mainshock to the aftershock
     folium.PolyLine(
         locations=[(principal['Latitude'], principal['Longitude']),
                    (row['Latitude'], row['Longitude'])],
@@ -193,13 +193,13 @@ for idx, row in premieres_repliques.iterrows():
         opacity=0.6
     ).add_to(m)
 
-# Ajouter les dernières répliques en vert
+# Add last aftershocks in green
 for idx, row in dernières_repliques.iterrows():
-    popup_text = (f"<b>Réplique</b><br>"
-                  f"<b>Temps:</b> {row['Time']}<br>"
+    popup_text = (f"<b>Aftershock</b><br>"
+                  f"<b>Time:</b> {row['Time']}<br>"
                   f"<b>Magnitude:</b> {row['Magnitude']}<br>"
                   f"<b>Distance:</b> {row['Distance']:.1f} km<br>"
-                  f"<b>ΔTemps:</b> {row['Différence de temps']}")
+                  f"<b>ΔTime:</b> {row['Time difference']}")
     folium.CircleMarker(
         location=[row['Latitude'], row['Longitude']],
         radius=5 + row['Magnitude'] * 2,
@@ -209,7 +209,7 @@ for idx, row in dernières_repliques.iterrows():
         fill_opacity=0.7,
         popup=popup_text
     ).add_to(m)
-    # Optionnel : tracer une ligne reliant le mainshock à la réplique
+    # Optional: draw a line connecting the mainshock to the aftershock
     folium.PolyLine(
         locations=[(principal['Latitude'], principal['Longitude']),
                    (row['Latitude'], row['Longitude'])],
@@ -219,8 +219,8 @@ for idx, row in dernières_repliques.iterrows():
     ).add_to(m)
 
 with col2:
-    # Afficher la carte
-    st.markdown("### Carte Interactive des Répliques")
+    # Display the map
+    st.markdown("### Interactive Aftershocks Map")
     st_folium(m, width=800, height=800)
 
 

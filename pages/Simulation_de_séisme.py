@@ -1,22 +1,22 @@
 import streamlit as st
 
-# Lire le fichier HTML
+# Read the HTML file
 with open("pages/carte_villages_seismes.html", "r", encoding="utf-8") as file:
     html_content = file.read()
 st.set_page_config(layout="wide")
 st.components.v1.html(html_content, height=900, scrolling=True)
 
-st.sidebar.header("Calculs utilisés")
-st.sidebar.text("Le cercle le plus large a été créé en utilisant une formule d'approximation empirique pour estimer la distance maximale touchée qui est la suivante:")
+st.sidebar.header("Calculations used")
+st.sidebar.text("The largest circle was created using an empirical approximation formula to estimate the maximum affected distance, which is as follows:")
 st.sidebar.latex(r"R = 10^{0.5M - 1.8}")
-st.sidebar.markdown(r"$R$ = Distance jusqu'à laquelle l'intensité atteint un niveau significatif")
-st.sidebar.markdown(r"$M$= Magnitude sur l'échelle de Richter")
-st.sidebar.text("Ensuite les autres cercles ont été créés en utilisant une formule générale d'atténuation de l'intensité:")
+st.sidebar.markdown(r"$R$ = Distance to which intensity reaches a significant level")
+st.sidebar.markdown(r"$M$= Magnitude on the Richter scale")
+st.sidebar.text("Then the other circles were created using a general formula for intensity attenuation:")
 st.sidebar.latex(r"I = I_0 - \beta \times \log_{10}(D)")
-st.sidebar.markdown(r"$I$ = Intensité ressentie à une distance D")
-st.sidebar.markdown(r"$I_0$ = Intensité maximale à l'épicentre")
-st.sidebar.markdown(r"$D$ = Distance à l'épicentre (km)")
-st.sidebar.markdown(r"$\beta$ = coefficient qui varie en fonction du type de sol, nous avons beta=4 qui correspond au type de sol de mayotte (volcanique)")
-st.sidebar.text("L'indice de vunérabilité à été calculé à partir des types de sol et de la population avec la formule suivante:")
-st.sidebar.latex(r"\text{indiceVulnerabiliteBrut} = \left( \text{pctTerre} \times 3 + \text{pctBeton} \times 2 + \text{pctCarrelage} \times 1 \right) \times \log(\text{Population}) \times \text{habitantsParLogement}")
-st.sidebar.text("L'indice est ensuite été ramené sur 100 en le divisant par le maximum théorique puis en multipliant ce résultat par 100")
+st.sidebar.markdown(r"$I$ = Intensity felt at distance D")
+st.sidebar.markdown(r"$I_0$ = Maximum intensity at epicenter")
+st.sidebar.markdown(r"$D$ = Distance to epicenter (km)")
+st.sidebar.markdown(r"$\beta$ = coefficient that varies depending on soil type, we have beta=4 which corresponds to Mayotte's soil type (volcanic)")
+st.sidebar.text("The vulnerability index was calculated from soil types and population with the following formula:")
+st.sidebar.latex(r"\text{vulnerabilityIndexRaw} = \left( \text{pctEarth} \times 3 + \text{pctConcrete} \times 2 + \text{pctTile} \times 1 \right) \times \log(\text{Population}) \times \text{residentsPerDwelling}")
+st.sidebar.text("The index was then scaled to 100 by dividing it by the theoretical maximum and then multiplying this result by 100")
