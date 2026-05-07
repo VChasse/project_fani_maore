@@ -12,7 +12,7 @@ def load_data(path):
     df = pd.read_csv(path, sep=';')
     df.columns = df.columns.str.strip()
     df['Time'] = pd.to_datetime(df['Time'], errors='coerce')
-    v_bat = pd.read_excel("types_batiments.xlsx",sheet_name="PRINC2")
+    v_bat = pd.read_json("pages/villages_data.json")
     return df,v_bat
 st.set_page_config(layout="wide")
 

@@ -119,7 +119,11 @@ with col1:
     
     st.markdown("### Identified Aftershocks")
     st.write(f"Number of aftershocks found: {len(repliques)}")
-    st.dataframe(repliques[['Temps', 'Magnitude', 'Latitude', 'Longitude', 'Distance', 'Time difference']].round(2))
+    # Round only numeric columns, not datetime
+    display_df = repliques[['Temps', 'Magnitude', 'Latitude', 'Longitude', 'Distance', 'Time difference']].copy()
+    numeric_cols = ['Magnitude', 'Latitude', 'Longitude', 'Distance']
+    display_df[numeric_cols] = display_df[numeric_cols].round(2)
+    st.dataframe(display_df)
 
 # --- 4. Visualization on the map ---
 # Display the mainshock and aftershocks on the map.

@@ -4,7 +4,7 @@ import streamlit as st
 with open("pages/carte_villages_seismes.html", "r", encoding="utf-8") as file:
     html_content = file.read()
 st.set_page_config(layout="wide")
-st.components.v1.html(html_content, height=900, scrolling=True)
+st.iframe(html_content, height=900, scrolling=True)
 
 st.sidebar.header("Calculations used")
 st.sidebar.text("The largest circle was created using an empirical approximation formula to estimate the maximum affected distance, which is as follows:")
